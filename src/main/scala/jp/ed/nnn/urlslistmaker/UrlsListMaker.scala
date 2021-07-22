@@ -12,6 +12,7 @@ class DownloadFailException extends IOException
 
 class WebPageLoader(config: Config,
                           client: OkHttpClient,
+                          urlsFileLoader: ActorRef
                          ) extends Actor {
 
   var originalSender = Actor.noSender
@@ -22,16 +23,23 @@ class WebPageLoader(config: Config,
 
   override def receive = {
 
+    case LoadWebPage => {
+      if(sender() != self) originalSender = sender()
+      urlsFileLoader ! LoadUrlsFile
+    }
+
     case webPageUrl: WebPageUrl => {
-      originalSender = sender()
       val url = "https://" + webPageUrl.domain + ".com"
+
       val request = new Request.Builder()
         .url(url)
         .build()
 
-
       client.newCall(request).enqueue(new Callback {
-        override def onFailure(call: Call, e: IOException): Unit = originalSender ! DownloadFailure
+        override def onFailure(call: Call, e: IOException): Unit =  {
+          originalSender ! DownloadFailure
+          downloadNext()
+        }
 
         override def onResponse(call: Call, response: Response): Unit = {
           if (response.isSuccessful) {
@@ -59,8 +67,11 @@ class WebPageLoader(config: Config,
             originalSender ! DownloadFailure
           }
           response.close()
+          downloadNext()
         }
       })
     }
+    case Finished => originalSender ! Finished
   }
+  private[this] def downloadNext(): Unit = self ! LoadWebPage
 }
